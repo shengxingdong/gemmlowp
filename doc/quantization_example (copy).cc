@@ -17,7 +17,6 @@ c++ doc/quantization_example.cc -I . --std=c++11 -msse4.1 -lpthread \
 #include <vector>
 #include "../public/gemmlowp.h"
 #include "../public/output_stages.h"
-#include <time.h>
 
 // We will handle both float and quantized matrices, which we will
 // represent as gemmlowp::MatrixMap.
@@ -244,9 +243,9 @@ void QuantizeMultiplierSmallerThanOne(float real_multiplier,
 int main() {
   std::cout.precision(3);
 
-  const int rows = 500;
-  const int depth = 500;
-  const int cols = 500;
+  const int rows = 2;
+  const int depth = 4;
+  const int cols = 3;
   const auto kOrder = gemmlowp::MapOrder::ColMajor;
 
   std::cout << "First, let us make some float matrices LHS and RHS, "
@@ -258,16 +257,14 @@ int main() {
   float_rhs.MakeRandom();
   MatrixWithStorage<float, kOrder> reference_float_result(rows, cols);
   auto reference_float_result_map = reference_float_result.Map();
-  
-  clock_t st = clock();
   FloatMatrixMultiplication(float_lhs.ConstMap(), float_rhs.ConstMap(),
                             &reference_float_result_map);
-  //std::cout << "Here is the float LHS matrix:\n" << float_lhs << std::endl;
-  //std::cout << "Here is the float RHS matrix:\n" << float_rhs << std::endl;
-  //std::cout << "Here is the float product (LHS * RHS) matrix obtained by "
-  //          << "ordinary float matrix multiplication, i.e. as far as we are "
-  //          << "concerned, the REFERENCE RESULT:\n"
-  //          << reference_float_result << std::endl;
+  std::cout << "Here is the float LHS matrix:\n" << float_lhs << std::endl;
+  std::cout << "Here is the float RHS matrix:\n" << float_rhs << std::endl;
+  std::cout << "Here is the float product (LHS * RHS) matrix obtained by "
+            << "ordinary float matrix multiplication, i.e. as far as we are "
+            << "concerned, the REFERENCE RESULT:\n"
+            << reference_float_result << std::endl;
 
   std::cout
       << "Now we embark on reproducing this result using "
@@ -298,9 +295,7 @@ int main() {
          "accuracy. "
       << "If they are too narrow, we just get clamping at the bounds.\n"
       << std::endl;
-  std::cout << "origin gemm: " << float(clock() - st)/CLOCKS_PER_SEC << std::endl;
-  st = clock();
-  //---------------Quantize-------------------
+
   float lhs_min, lhs_max, rhs_min, rhs_max, result_min, result_max;
   FindMinMax(float_lhs.Map(), &lhs_min, &lhs_max);
   FindMinMax(float_rhs.Map(), &rhs_min, &rhs_max);
@@ -331,8 +326,8 @@ int main() {
   Quantize(lhs_qparams, float_lhs.Storage(), &uint8_lhs.Storage());
   Quantize(rhs_qparams, float_rhs.Storage(), &uint8_rhs.Storage());
 
-  //std::cout << "Quantized uint8 LHS matrix:\n" << uint8_lhs << std::endl;
-  //std::cout << "Quantized uint8 RHS matrix:\n" << uint8_rhs << std::endl;
+  std::cout << "Quantized uint8 LHS matrix:\n" << uint8_lhs << std::endl;
+  std::cout << "Quantized uint8 RHS matrix:\n" << uint8_rhs << std::endl;
 
   const int lhs_offset = -lhs_qparams.zero_point;
   const int rhs_offset = -rhs_qparams.zero_point;
@@ -345,15 +340,13 @@ int main() {
   QuantizeMultiplierSmallerThanOne(real_multiplier, &quantized_multiplier,
                                    &right_shift);
 
-  //std::cout << "End of OFFLINE QUANTIZATION CODE.\n" << std::endl;
+  std::cout << "End of OFFLINE QUANTIZATION CODE.\n" << std::endl;
 
-  //std::cout << "The below is ON-DEVICE RUNTIME QUANTIZED CODE. "
-  //          << "This is the part that is performance-critical and may only "
-  //          << "use quantized arithmetic.\n"
-  //          << std::endl;
+  std::cout << "The below is ON-DEVICE RUNTIME QUANTIZED CODE. "
+            << "This is the part that is performance-critical and may only "
+            << "use quantized arithmetic.\n"
+            << std::endl;
 
-
-  //------------Quantized gemm start----------------
   gemmlowp::OutputStageQuantizeDownInt32ByFixedPoint
       quantize_down_stage;
   quantize_down_stage.result_offset_after_shift = result_offset;
@@ -370,36 +363,29 @@ int main() {
       &gemm_context, uint8_lhs.ConstMap(), uint8_rhs.ConstMap(),
       &actual_uint8_result_map, lhs_offset, rhs_offset, output_pipeline);
 
-  //std::cout << "Quantized uint8 result matrix obtained by quantized "
-  //          << "multiplication:\n"
-  //          << actual_uint8_result << std::endl;
+  std::cout << "Quantized uint8 result matrix obtained by quantized "
+            << "multiplication:\n"
+            << actual_uint8_result << std::endl;
 
   std::cout << "End of ON-DEVICE RUNTIME QUANTIZED CODE.\n" << std::endl;
 
   MatrixWithStorage<float, kOrder> actual_float_result(rows, cols);
   Dequantize(result_qparams, actual_uint8_result.Storage(),
              &actual_float_result.Storage());
-  //std::cout
-  //    << "Here is the actual float product (LHS * RHS) matrix obtained by "
-  //    << "dequantizing the above uint8 result, i.e. "
-  //    << "as far as we are concerned, the ACTUAL RESULT:\n"
-  //    << actual_float_result << std::endl;
-
-  //------------Quantized gemm end----------------
-  std::cout << "Quantize gemm: " << float(clock() - st)/CLOCKS_PER_SEC << std::endl;
-  
-
+  std::cout
+      << "Here is the actual float product (LHS * RHS) matrix obtained by "
+      << "dequantizing the above uint8 result, i.e. "
+      << "as far as we are concerned, the ACTUAL RESULT:\n"
+      << actual_float_result << std::endl;
 
   MatrixWithStorage<float, kOrder> diff_float_result(rows, cols);
-  float avg_diff = 0;
   for (int i = 0; i < rows; i++) {
     for (int j = 0; j < cols; j++) {
       diff_float_result.Map()(i, j) =
           actual_float_result.Map()(i, j) - reference_float_result.Map()(i, j);
-	  avg_diff += diff_float_result.Map()(i, j);
     }
   }
-  std::cout << "avg diff :" << avg_diff/(rows*cols) << std::endl;
-  //std::cout << "Difference between ACTUAL and REFERENCE float results:\n"
-  //          << diff_float_result << std::endl;
+
+  std::cout << "Difference between ACTUAL and REFERENCE float results:\n"
+            << diff_float_result << std::endl;
 }
