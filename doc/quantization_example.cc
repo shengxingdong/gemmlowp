@@ -364,9 +364,9 @@ int main() {
       std::make_tuple(quantize_down_stage, saturating_cast_stage);
 
   auto actual_uint8_result_map = actual_uint8_result.Map();
-  gemmlowp::GemmContext gemm_context;
+  gemmlowp::GemmContext gemm_context; //DefaultL8R8BitDepthParams   L8R8WithLhsNonzeroBitDepthParams
   gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::uint8_t,
-                                   gemmlowp::DefaultL8R8BitDepthParams>(
+                                   gemmlowp::L8R8WithLhsNonzeroBitDepthParams>(   
       &gemm_context, uint8_lhs.ConstMap(), uint8_rhs.ConstMap(),
       &actual_uint8_result_map, lhs_offset, rhs_offset, output_pipeline);
 
